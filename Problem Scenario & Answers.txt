@@ -1,0 +1,219 @@
+Problem Scenario 1 
+What is the total number of consumers for Branch1?
+What is the number of consumers for the Branch2?
+Type 1: Creating single physical table with sub queries.
+Type 2: Creating multiple physical tables
+"use any one type which you are comfortable"
+
+Problem Scenario 2 
+What is the most consumed beverage on Branch1
+What is the least consumed beverage on Branch2
+
+Problem Scenario 3
+What are the beverages available on Branch10, Branch8, and Branch1?
+what are the comman beverages available in Branch4,Branch7?
+
+Problem Scenario 4
+create a partition,index,View for the scenario3.
+
+Problem Scenario 5
+Alter the table properties to add "note","comment"
+
+Problem Scenario 6
+Remove the row 5 from the output of Scenario 1 
+
+Technology to use
+1)Hive and HDFS In UBuntu.
+
+2)How to present the project
+Use the PPT presentation with screenshot of output attached along with problem senario described.
+
+
+
+
+
+//Preparing the tables and loading data
+
+
+These commands will create managed tables, stored as text files, in the database that is currently selected in Hive. 
+
+The database schema and table definitions are stored in the metastore.
+
+The database is stored as a directory, as well as all tables in the database.
+The table directories contain the underlying file that stores the data.
+The file formats supported are Text files, SequenceFile, RCFile, ORC Files, Parquet, and custom defined INPUTFORMAT and OUTPUTFORMAT
+	-The default type is TextFile
+	-The file type can be further clarified using ROW FORMAT DELIMITED, followed by FIELDS TERMINATED BY
+		- Field terminators should be set depending on file format type (csv, txt, JSON)
+	- Hive uses a Serializer/Deserializer to handle Reading/Writing of data From/To hive tables
+		    SerDe is a short name for "Serializer and Deserializer."
+			Hive uses SerDe (and FileFormat) to read and write table rows.
+			HDFS files --> InputFileFormat --> <key, value> --> Deserializer --> Row object
+			Row object --> Serializer --> <key, value> --> OutputFileFormat --> HDFS files
+	
+
+
+CREATE TABLE bev_branchA(drink STRING, branch STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' STORED AS textfile;
+CREATE TABLE bev_branchB(drink STRING, branch STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' STORED AS textfile;
+CREATE TABLE bev_branchC(drink STRING, branch STRING) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' STORED AS textfile;
+
+CREATE TABLE bev_conscountA(drink STRING, count INT) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' STORED AS textfile;
+CREATE TABLE bev_conscountB(drink STRING, count INT) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' STORED AS textfile;
+CREATE TABLE bev_conscountC(drink STRING, count INT) ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' STORED AS textfile;
+
+
+LOAD DATA INPATH '/user/smeef/project1/Bev_BranchA.txt' INTO TABLE project1.bev_branchA;
+LOAD DATA INPATH '/user/smeef/project1/Bev_BranchB.txt' INTO TABLE project1.bev_branchB;
+LOAD DATA INPATH '/user/smeef/project1/Bev_BranchC.txt' INTO TABLE project1.bev_branchC;
+
+LOAD DATA INPATH '/user/smeef/project1/Bev_ConscountA.txt' INTO TABLE project1.bev_conscountA;
+LOAD DATA INPATH '/user/smeef/project1/Bev_ConscountB.txt' INTO TABLE project1.bev_conscountB;
+LOAD DATA INPATH '/user/smeef/project1/Bev_ConscountC.txt' INTO TABLE project1.bev_conscountC;
+
+
+CREATE TABLE bev_branch_combined AS (SELECT * FROM bev_brancha UNION ALL (SELECT * FROM bev_branchb UNION ALL (SELECT * FROM bev_branchc)));
+
+CREATE TABLE conscount_combined AS (SELECT * FROM bev_conscounta UNION ALL (SELECT * FROM bev_conscountb UNION ALL (SELECT * FROM bev_conscountc)));
+
+CREATE TABLE conscount_by_branch_and_bev AS (SELECT b.drink, b.branch, c.count from bev_branch_combined b JOIN conscount_combined c ON (b.drink = c.drink));
+
+Create combined tables in order to efficiently answer the questions given in the project
+
+
+// Question 1
+//Part 1
+SELECT branch, sum(count) AS total_consumers FROM conscount_by_branch_and_bev WHERE branch='Branch1' GROUP BY branch;
+
+The total number of consumers from branch 1
+-	Group by groups our results based on the grouping field
+-	By default, the aggregate function (sum) would sum every row in the table
+		- Using group by, our sum function gives the total sum of the count field for every branch
+- 	When using group by, the number of rows in the result will be equal to the number of unique values in the grouping field
+
+//Part 2
+SELECT branch, sum(count) AS total_consumers FROM conscount_by_branch_and_bev WHERE branch='Branch2' GROUP BY branch;
+
+Same as before, for branch 2
+
+
+
+
+// Question 2
+//Part 1
+SELECT drink, sum(count) cnt FROM conscount_by_branch_and_bev WHERE branch='Branch1' GROUP BY drink SORT BY cnt DESC limit 1;
+
+//Part 2
+SELECT drink, sum(count) cnt FROM conscount_by_branch_and_bev WHERE branch='Branch2' GROUP BY drink SORT BY cnt ASC limit 1;
+
+
+Similar to the question 1 using GROUP BY, however, now we sort by the sum of the number of drinks from a branch, and limit our result to the top 1 (the first row)
+
+
+// Question 3
+//Part 1
+CREATE TABLE drinks_branches_1_8_10 AS SELECT DISTINCT drink FROM (SELECT * FROM bev_branch_combined) combined WHERE combined.branch='Branch1' or combined.branch='Branch8' or combined.branch='Branch10';
+
+We create a new table that selects the distinct drinks from the three branches using a combined WHERE filter for branch 1, 8 and 10
+
+
+//Part 2
+CREATE TABLE drinks_shared_4_7 AS SELECT drink FROM bev_branch_combined WHERE branch='Branch4' INTERSECT SELECT drink FROM bev_branch_combined WHERE branch='Branch7';
+
+We use the INTERSECT operator to take the common rows from the left result and the right result
+	In this case, the drinks from branch 4 and the drinks from branch 7
+
+
+
+
+
+
+
+//Question 4
+//Part 1
+
+CREATE TABLE part_drinks_branches_1_8_10 (drink string) partitioned by (part INT);
+ALTER TABLE part_drinks_branches_1_8_10 ADD PARTITION (part = 1) partition (part = 2) partition (part = 3) partition (part = 4);
+
+SET hive.exec.dynamic.partition.mode = nonstrict;
+
+INSERT INTO part_drinks_branches_1_8_10 partition(part) select drink, 1 as part from drinks_branches_1_8_10 ORDER BY drink ASC limit 11;
+INSERT INTO part_drinks_branches_1_8_10 partition(part) select drink, 2 as part from drinks_branches_1_8_10 ORDER BY drink ASC limit 11 offset 11;
+INSERT INTO part_drinks_branches_1_8_10 partition(part) select drink, 3 as part from drinks_branches_1_8_10 ORDER BY drink ASC limit 11 offset 22;
+INSERT INTO part_drinks_branches_1_8_10 partition(part) select drink, 4 as part from drinks_branches_1_8_10 ORDER BY drink ASC limit 11 offset 33;
+
+CREATE INDEX indx_drinks_1_8_10 ON TABLE drinks_branches_1_8_10(drink) AS 'org.apache.hadoop.hive.ql.index.compact.CompactIndexHandler' WITH DEFERRED REBUILD;
+
+CREATE VIEW view_mocha as select * from drinks_branches_1_8_10 WHERE drink = 'ICY_MOCHA';
+
+
+We create a new table and define that it is partitioned by the field 'part'
+	We then manually define 4 partitions for the new table
+	This will create a new directory for the table, and 4 subdirectories for each partition
+	We then set the partition mode to nonstrict in order to manually partition our new table
+		We then procede to insert data manually from the original table, inserting equal amounts of data into each partition
+		This will increase our select performance when selecting and filtering on the partition field
+
+
+
+
+
+
+Views act as an alias for some query
+This simplifys our queries as we can alias a query that we need to resure for future use
+	Views are also read-only, and helps to maintain integrity of base tables
+
+//Part 2
+
+CREATE TABLE part_drinks_shared_4_7 (drink string) partitioned by (part INT);
+ALTER TABLE part_drinks_shared_4_7 ADD PARTITION (part = 1) partition (part = 2) partition (part = 3);
+
+
+SET hive.exec.dynamic.partition.mode = nonstrict;
+
+INSERT INTO part_drinks_shared_4_7 partition(part) select drink, 1 as part from drinks_shared_4_7 ORDER BY drink ASC limit 17;
+INSERT INTO part_drinks_shared_4_7 partition(part) select drink, 2 as part from drinks_shared_4_7 ORDER BY drink ASC limit 17 offset 17;
+INSERT INTO part_drinks_shared_4_7 partition(part) select drink, 3 as part from drinks_shared_4_7 ORDER BY drink ASC limit 17 offset 34;
+
+CREATE INDEX indx_drinks_shared ON TABLE drinks_shared_4_7(drink) AS 'org.apache.hadoop.hive.ql.index.compact.CompactIndexHandler' WITH DEFERRED REBUILD;
+
+CREATE VIEW view_mocha_shared as select * from drinks_shared_4_7 WHERE drink = 'Mild_MOCHA';
+
+
+Same as part 1
+
+
+
+
+
+// Question 5
+
+ALTER TABLE bev_branch_combined SET TBLPROPERTIES('comment'='all three data files combined into one file');
+ALTER TABLE bev_branch_combined SET TBLPROPERTIES('notes'='this is a really cool note!');
+
+ALTER TABLE conscount_combined SET TBLPROPERTIES('comment'='all three conscount files combined into one file');
+ALTER TABLE conscount_combined SET TBLPROPERTIES('notes'='this is a really lame note!');
+
+ALTER TABLE conscount_by_branch_and_bev SET TBLPROPERTIES('comment'='lots of data in here');
+ALTER TABLE conscount_by_branch_and_bev SET TBLPROPERTIES('notes'='this is a note and not a comment!');
+
+show tblproperties bev_branch_combined;
+show tblproperties bev_conscount_combined;
+show tblproperties conscount_by_branch_and_bev;
+
+By altering the table properties, we can describe and define the data further. This is considered metadata.
+
+
+
+
+
+// Question 6
+
+SELECT branch, total_consumers FROM (SELECT branch, sum(count) as total_consumers, 
+	ROW_NUMBER() over(ORDER BY branch ASC) as row_number from conscount_by_branch_and_bev 
+	GROUP BY branch) ordered 
+WHERE ordered.row_number != 5;
+
+This query utilizes the ROW_NUMBER() function, which will add a new column denoting the order the rows appear in. 
+	This requires the over() function to define the order in which they appear
+		In this case, we use ORDER BY branch ASC to define that the rows should be ordered by branch in ascending order
+We can then exclude the fifth row using a WHERE clause to exclude the fifth row, using the row_number field.
